@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Toyland GH</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>Toyland GH 🎄</h1><p>Choose what you want, then send your order.</p></header>
+<div class="wrap" id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+import {getFirestore,collection,onSnapshot,addDoc} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+const app0=initializeApp({apiKey:"AIzaSyBjXnvdNSE2UHm8mikS-dj76gQop1Z61yc",authDomain:"toyland-gh.firebaseapp.com",projectId:"toyland-gh",storageBucket:"toyland-gh.firebasestorage.app",messagingSenderId:"936959592382",appId:"1:936959592382:web:fd1ae556febbd05d195bef"});
+const db=getFirestore(app0);
+const SHOP_PHONE=""; // shop WhatsApp number e.g. "233201234567"
+const DEFAULTS=[["Remote control car",85,"Cars","🚗"],["Racing toy car",25,"Cars","🏎️"],["Toy helicopter",60,"Flying","🚁"],["Balloons (pack)",10,"Party","🎈"],["Christmas tree",120,"Christmas","🎄"],["Santa hat",15,"Christmas","🎅"],["Kids lipstick set",20,"Kids beauty","💄"],["Kids fake nails",15,"Kids beauty","💅"],["Toy gun",30,"Toys","🔫"]].map((a,i)=>({id:"d"+i,name:a[0],price:a[1],cat:a[2],emoji:a[3],img:"",on:true}));
+let items=DEFAULTS,cart={},cat="All",q="",grid,bar,sheet;
+const app=document.getElementById("app");
+function el(t,p,k){const e=document.createElement(t);for(const x in p||{}){if(x==="text")e.textContent=p[x];else if(x==="on")for(const ev in p.on)e.addEventListener(ev,p.on[ev]);else e[x]=p[x]}(k||[]).forEach(c=>{if(c)e.appendChild(c)});return e}
+const money=v=>"GH₵ "+(Math.round(v*100)/100).toLocaleString("en-GH");
+const shown=()=>items.filter(i=>i.on!==false);
+function totals(){let n=0,t=0;items.forEach(i=>{const c=cart[i.id]||0;n+=c;t+=c*i.price});return{n,t}}
+function pic(i){const d=el("div",{className:"pic"});if(i.img){const m=el("img",{alt:i.name});m.src=i.img;d.appendChild(m)}else d.textContent=i.emoji||"🎁";return d}
+function build(){
+app.innerHTML="";
+const s=el("input",{className:"search",type:"search",placeholder:"🔍 Search toys, balloons, Christmas…",value:q});
+s.addEventListener("input",()=>{q=s.value;drawGrid()});
+const cats=["All"];shown().forEach(i=>{if(cats.indexOf(i.cat)<0)cats.push(i.cat)});
+const chips=el("div",{className:"chips"});
+cats.forEach(c=>{const b=el("button",{className:"chip",text:c,on:{click:()=>{cat=c;build()}}});b.setAttribute("aria-pressed",c===cat);chips.appendChild(b)});
+grid=el("div",{className:"grid"});bar=el("button",{className:"bar",on:{click:openSheet}});sheet=el("div",{className:"sheet"});
+app.append(s,chips,grid,bar,sheet);drawGrid();drawBar()}
+function drawGrid(){grid.innerHTML="";
+const v=shown().filter(i=>(cat==="All"||i.cat===cat)&&i.name.toLowerCase().indexOf(q.toLowerCase())>=0);
+if(!v.length)grid.appendChild(el("p",{text:"No items match your search. Try another word."}));
+v.forEach(i=>{const c=cart[i.id]||0;let w;
+if(!c)w=el("button",{className:"btn",text:"Add",on:{click:()=>chg(i.id,1)}});
+else w=el("div",{className:"qty"},[el("button",{text:"−",on:{click:()=>chg(i.id,-1)}}),el("span",{text:String(c)}),el("button",{text:"+",on:{click:()=>chg(i.id,1)}})]);
+grid.appendChild(el("div",{className:"item"},[pic(i),el("div",{text:i.name}),el("div",{className:"price",text:money(i.price)}),w]))})}
+function chg(id,d){cart[id]=Math.max(0,(cart[id]||0)+d);drawGrid();drawBar()}
+function drawBar(){const s=totals();bar.innerHTML="";bar.append(el("span",{text:s.n?s.n+(s.n===1?" item":" items")+" · View order":"Cart is empty"}),el("b",{text:money(s.t)}))}
+function lines(){return items.filter(i=>cart[i.id]).map(i=>({n:i.name,q:cart[i.id],p:i.price}))}
+function text(name){let t="Hello, I want to order:\n";lines().forEach(l=>{t+=l.q+" x "+l.n+" - "+money(l.q*l.p)+"\n"});return t+"Total: "+money(totals().t)+"\nName: "+name}
+function openSheet(){const s=totals(),p=el("div",{className:"panel"});
+const nm=el("input",{placeholder:"Your name",autocomplete:"name"}),ph=el("input",{placeholder:"Your phone number",type:"tel"}),msg=el("p",{className:"note"});
+p.appendChild(el("h2",{text:"Your order"}));
+if(!s.n)p.appendChild(el("p",{text:"Add an item to start your order."}));
+lines().forEach(l=>p.appendChild(el("div",{className:"row"},[el("span",{text:l.q+" × "+l.n}),el("span",{text:money(l.q*l.p)})])));
+p.appendChild(el("div",{className:"total"},[el("span",{text:"Total"}),el("span",{text:money(s.t)})]));
+p.append(nm,el("div",{style:"height:8px"}),ph,el("div",{style:"height:12px"}));
+if(s.n){
+const place=el("button",{className:"send",text:"Place order",on:{click:()=>{
+const name=nm.value.trim()||"A customer";place.disabled=true;
+addDoc(collection(db,"orders"),{name:name,phone:ph.value.trim(),lines:lines(),total:s.t,status:"new",paid:false,method:"",at:Date.now()})
+.then(()=>{msg.textContent="Order sent. The shop will contact you.";cart={};drawGrid();drawBar()})
+.catch(()=>{place.disabled=false;msg.textContent="Could not send. Use WhatsApp below."})}}});
+const wa=el("a",{className:"send",text:"Send on WhatsApp",target:"_blank",rel:"noopener",href:"#",style:"background:var(--green)",on:{click:()=>{wa.href="https://wa.me/"+SHOP_PHONE+"?text="+encodeURIComponent(text(nm.value.trim()||"A customer"))}}});
+p.append(place,wa)}
+p.append(msg,el("button",{className:"send btn ghost",text:"Keep shopping",on:{click:()=>sheet.classList.remove("open")}}));
+sheet.innerHTML="";sheet.appendChild(p);sheet.classList.add("open")}
+build();
+onSnapshot(collection(db,"items"),s=>{if(!s.empty){items=s.docs.map(d=>Object.assign({id:d.id},d.data()))}else items=DEFAULTS;if(!document.activeElement||document.activeElement.tagName!=="INPUT")build();else{drawGrid();drawBar()}},()=>{});
+</script></body></html>
