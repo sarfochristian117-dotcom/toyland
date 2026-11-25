@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Toyland GH – Owner</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"></head>
+<body>
+<header><h1>Owner panel 🔐</h1><p id="who">Sign in to manage the shop.</p></header>
+<div class="wrap" id="app"></div>
+<script type="module">
+import {initializeApp} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js";
+import {getFirestore,collection,onSnapshot,doc,getDoc,setDoc,updateDoc,deleteDoc} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js";
+import {getAuth,signInWithEmailAndPassword,onAuthStateChanged,signOut} from "https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js";
+const a0=initializeApp({apiKey:"AIzaSyBjXnvdNSE2UHm8mikS-dj76gQop1Z61yc",authDomain:"toyland-gh.firebaseapp.com",projectId:"toyland-gh",storageBucket:"toyland-gh.firebasestorage.app",messagingSenderId:"936959592382",appId:"1:936959592382:web:fd1ae556febbd05d195bef"});
+const db=getFirestore(a0),auth=getAuth(a0);
+const DEFAULTS=[["Remote control car",85,"Cars","🚗"],["Racing toy car",25,"Cars","🏎️"],["Toy helicopter",60,"Flying","🚁"],["Balloons (pack)",10,"Party","🎈"],["Christmas tree",120,"Christmas","🎄"],["Santa hat",15,"Christmas","🎅"],["Kids lipstick set",20,"Kids beauty","💄"],["Kids fake nails",15,"Kids beauty","💅"],["Toy gun",30,"Toys","🔫"]].map((a,i)=>({id:"d"+i,name:a[0],price:a[1],cat:a[2],emoji:a[3],img:"",on:true}));
+const CLOUD=""; // Cloudinary cloud name
+const PRESET=""; // Cloudinary unsigned upload preset name
+function uploadVideo(file,onProg){return new Promise((res,rej)=>{if(!CLOUD||!PRESET){rej(new Error("not set"));return}
+const fd=new FormData();fd.append("file",file);fd.append("upload_preset",PRESET);
+const x=new XMLHttpRequest();x.open("POST","https://api.cloudinary.com/v1_1/"+CLOUD+"/video/upload");
+x.upload.onprogress=e=>{if(e.lengthComputable)onProg(Math.round(e.loaded/e.total*100))};
+x.onload=()=>{try{const r=JSON.parse(x.responseText);if(r.secure_url){res(r.secure_url.replace("/upload/","/upload/f_mp4,vc_h264,q_auto,w_720/").replace(/\.[a-z0-9]+$/i,".mp4"))}else rej(new Error((r.error&&r.error.message)||"failed"))}catch(e){rej(e)}};
+x.onerror=()=>rej(new Error("network"));x.send(fd)})}
+let items=[],orders=[],tab="items",user=null,stop=[],first=true,newCount=0,unlocked=false,pinHash=undefined,fails=0,lockUntil=0;
+async function sha(s){const d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode("toyland:"+s));return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,"0")).join("")}
+function beep(){try{const c=new (window.AudioContext||window.webkitAudioContext)(),g=c.createGain();g.connect(c.destination);g.gain.value=.2;[880,1100,880].forEach((f,i)=>{const x=c.createOscillator();x.frequency.value=f;x.connect(g);x.start(c.currentTime+i*.2);x.stop(c.currentTime+i*.2+.15)})}catch(e){}}
+const app=document.getElementById("app");
+function el(t,p,k){const e=document.createElement(t);for(const x in p||{}){if(x==="text")e.textContent=p[x];else if(x==="on")for(const ev in p.on)e.addEventListener(ev,p.on[ev]);else e[x]=p[x]}(k||[]).forEach(c=>{if(c)e.appendChild(c)});return e}
+const money=v=>"GH₵ "+(Math.round(v*100)/100).toLocaleString("en-GH");
+const uid=()=>"i"+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+function pic(i){const d=el("div",{className:"pic"});if(i.img){const m=el("img",{alt:i.name});m.src=i.img;d.appendChild(m)}else d.textContent=i.emoji||"🎁";return d}
+function shrink(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const s=Math.min(1,420/Math.max(im.width,im.height)),c=document.createElement("canvas");c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);c.getContext("2d").drawImage(im,0,0,c.width,c.height);res(c.toDataURL("image/jpeg",.75))};im.onerror=rej;im.src=r.result};r.onerror=rej;r.readAsDataURL(file)})}
+function saveItem(i){return setDoc(doc(db,"items",i.id),{name:i.name,price:Number(i.price)||0,cat:i.cat||"Other",emoji:i.emoji||"",img:i.img||"",video:i.video||"",on:i.on!==false}).catch(()=>alert("Could not save. Check your internet."))}
+function loginView(){
+app.innerHTML="";document.getElementById("who").textContent="Sign in to manage the shop.";
+const e=el("input",{type:"email",placeholder:"Owner email",autocomplete:"username"}),p=el("input",{type:"password",placeholder:"Password",autocomplete:"current-password"}),m=el("p",{className:"note"});
+app.appendChild(el("div",{className:"login"},[e,p,el("button",{className:"send",text:"Sign in",on:{click:()=>{m.textContent="";signInWithEmailAndPassword(auth,e.value.trim(),p.value).catch(()=>{m.textContent="Wrong email or password. Try again."})}}}),m]))}
+function panel(){
+app.innerHTML="";document.getElementById("who").textContent="Signed in as "+user.email;
+const t=el("div",{className:"tabs"});[["items","Items"],["orders",(unlocked?"":"🔒 ")+"Orders & payments"]].forEach(x=>{const b=el("button",{className:"chip",text:x[1],on:{click:()=>{tab=x[0];panel()}}});b.setAttribute("aria-pressed",tab===x[0]);t.appendChild(b)});
+app.appendChild(t);
+if(newCount>0)app.appendChild(el("div",{className:"card",style:"background:var(--red);color:#fff;cursor:pointer",text:"🔔 "+newCount+" new order"+(newCount>1?"s":"")+" – tap to see",on:{click:()=>{newCount=0;tab="orders";panel()}}}));
+tab==="items"?itemsView():(unlocked?ordersView():pinView());
+app.appendChild(el("p",{className:"acts"},[unlocked?el("button",{className:"btn ghost",text:"🔒 Lock payments",on:{click:()=>{unlocked=false;panel()}}}):null,el("button",{className:"btn ghost",text:"Sign out",on:{click:()=>signOut(auth)}})]))}
+function itemsView(){
+if(!items.length)app.appendChild(el("button",{className:"btn red",text:"Save the sample items to my shop",on:{click:()=>DEFAULTS.forEach(saveItem)}}));
+app.appendChild(el("button",{className:"btn",text:"+ Add new item",style:"margin:10px 0;display:block",on:{click:()=>saveItem({id:uid(),name:"New item",price:0,cat:"Other",emoji:"🎁",on:true})}}));
+items.forEach(i=>{
+const n=el("input",{value:i.name}),p=el("input",{type:"number",value:i.price,min:0,step:"0.5"}),c=el("input",{value:i.cat}),e=el("input",{value:i.emoji||"",placeholder:"Emoji"});
+const v=el("input",{value:i.video||"",placeholder:"Paste video link (YouTube or .mp4)",style:"margin-bottom:8px"});v.addEventListener("change",()=>{const t=v.value.trim();if(t&&t.indexOf("https://")!==0){alert("The video link must start with https://");v.value=i.video||"";return}i.video=t;saveItem(i)});
+const vf=el("input",{type:"file",accept:"video/*",style:"display:none"});
+const vb=el("button",{className:"btn",text:i.video?"Change video":"Upload video"});
+vb.addEventListener("click",()=>vf.click());
+vf.addEventListener("change",()=>{const fl=vf.files[0];if(!fl)return;
+if(fl.size>60*1024*1024){alert("This video is too big. Choose one under 60 MB (about 1 minute).");return}
+vb.disabled=true;vb.textContent="Uploading 0%…";
+uploadVideo(fl,p=>{vb.textContent="Uploading "+p+"%…"}).then(u=>{i.video=u;saveItem(i)}).catch(e=>{vb.disabled=false;vb.textContent=i.video?"Change video":"Upload video";alert(e.message==="not set"?"Video upload is not set up yet.":"Video upload failed: "+e.message)})});
+const go=()=>{i.name=n.value;i.price=p.value;i.cat=c.value;i.emoji=e.value;saveItem(i)};
+[n,p,c,e].forEach(x=>x.addEventListener("change",go));
+const f=el("input",{type:"file",accept:"image/*",style:"display:none"});
+f.addEventListener("change",()=>{if(f.files[0])shrink(f.files[0]).then(d=>{i.img=d;saveItem(i)}).catch(()=>alert("Could not read that photo."))});
+app.appendChild(el("div",{className:"card"},[el("div",{className:"row"},[pic(i),el("div",{className:"price",text:money(i.price)})]),el("div",{className:"f"},[n,p,c,e]),v,f,vf,
+el("div",{className:"acts"},[el("button",{className:"btn",text:i.img?"Change photo":"Add real photo",on:{click:()=>f.click()}}),vb,i.video?el("button",{className:"btn ghost",text:"Remove video",on:{click:()=>{i.video="";saveItem(i)}}}):null,
+el("button",{className:"btn ghost",text:i.on===false?"Show in shop":"Hide from shop",on:{click:()=>{i.on=i.on===false;saveItem(i)}}}),
+el("button",{className:"btn ghost",text:"Delete",on:{click:()=>{if(confirm("Delete "+i.name+"?"))deleteDoc(doc(db,"items",i.id))}}})])]))})}
+function ordersView(){
+let paid=0,owed=0,today=0;const d0=new Date();d0.setHours(0,0,0,0);
+orders.forEach(o=>{if(o.paid){paid+=o.total;if(o.at>=d0.getTime())today+=o.total}else if(o.status!=="cancelled")owed+=o.total});
+const st=(l,v)=>el("div",{className:"stat"},[el("span",{text:l}),el("b",{text:v})]);
+app.appendChild(el("div",{className:"stats"},[st("Paid today",money(today)),st("All paid",money(paid)),st("Waiting for payment",money(owed)),st("Orders",String(orders.length))]));
+if(!orders.length)app.appendChild(el("p",{text:"No orders yet. New orders will appear here."}));
+orders.slice().sort((a,b)=>b.at-a.at).forEach(o=>{
+const up=x=>updateDoc(doc(db,"orders",o.id),x);
+const m=el("select");["","Mobile Money","Cash","Bank"].forEach(x=>{const op=el("option",{text:x||"Payment method",value:x});if(x===o.method)op.selected=true;m.appendChild(op)});
+app.appendChild(el("div",{className:"card"},[
+el("div",{className:"row"},[el("b",{text:o.name+(o.phone?" · "+o.phone:"")}),el("span",{className:"tag"+(o.paid?" paid":""),text:o.paid?"Paid":"Not paid"})]),
+el("div",{text:(o.lines||[]).map(l=>l.q+" × "+l.n).join(", ")}),
+el("div",{className:"note",style:"text-align:left;margin:6px 0",text:o.payType==="pay"?"Customer says paid by "+(o.network||"Mobile Money")+" · ID: "+(o.momoRef||"-")+" (check your phone, then tap Mark as paid)":"Will pay when collecting"}),
+el("div",{className:"row"},[el("span",{text:new Date(o.at).toLocaleString("en-GH")}),el("b",{text:money(o.total)})]),
+el("div",{className:"acts"},[m,el("button",{className:"btn",text:o.paid?"Mark not paid":"Mark as paid",on:{click:()=>up({paid:!o.paid,method:m.value})}}),
+el("button",{className:"btn ghost",text:o.status==="done"?"Reopen":"Mark delivered",on:{click:()=>up({status:o.status==="done"?"new":"done"})}}),
+el("button",{className:"btn ghost",text:"Cancel",on:{click:()=>up({status:"cancelled"})}})]),
+el("span",{className:"tag",text:"Status: "+o.status})]))})}
+function pinView(){
+const box=el("div",{className:"login"});
+if(pinHash===undefined){box.appendChild(el("p",{text:"Loading…"}));app.appendChild(box);return}
+if(pinHash===null){box.appendChild(el("p",{text:"Could not load the PIN settings. Make sure the new Firestore rules are published, then refresh."}));app.appendChild(box);return}
+const creating=pinHash==="";
+const a=el("input",{type:"password",inputMode:"numeric",placeholder:creating?"Create a PIN (4 to 6 digits)":"Enter PIN",autocomplete:"off"});
+const b=creating?el("input",{type:"password",inputMode:"numeric",placeholder:"Type the PIN again",autocomplete:"off"}):null;
+const m=el("p",{className:"note"});
+const go=async()=>{const now=Date.now();if(now<lockUntil){m.textContent="Too many tries. Wait "+Math.ceil((lockUntil-now)/1000)+" seconds.";return}
+const v=a.value.trim();if(!/^\d{4,6}$/.test(v)){m.textContent="The PIN must be 4 to 6 digits.";return}
+const h=await sha(v);
+if(creating){if(v!==b.value.trim()){m.textContent="The two PINs do not match.";return}
+try{await setDoc(doc(db,"settings","pin"),{h:h});pinHash=h;unlocked=true;panel()}catch(e){m.textContent="Could not save the PIN."}}
+else if(h===pinHash){fails=0;unlocked=true;panel()}
+else{fails++;if(fails>=5){lockUntil=Date.now()+30000;fails=0}m.textContent="Wrong PIN."}};
+[el("p",{text:creating?"Payments are private. Create a PIN to protect them.":"Payments are locked. Enter your PIN."}),a,b,el("button",{className:"send",text:creating?"Save PIN":"Unlock",on:{click:go}}),m].filter(Boolean).forEach(x=>box.appendChild(x));
+app.appendChild(box)}
+function busy(){const a=document.activeElement;return a&&(a.tagName==="INPUT"||a.tagName==="SELECT")}
+onAuthStateChanged(auth,u=>{stop.forEach(f=>f());stop=[];user=u;unlocked=false;pinHash=undefined;
+if(!u){loginView();return}
+stop.push(onSnapshot(collection(db,"items"),s=>{items=s.docs.map(d=>Object.assign({id:d.id},d.data()));if(!busy())panel()},()=>{}));
+first=true;newCount=0;
+getDoc(doc(db,"settings","pin")).then(d=>{pinHash=d.exists()?d.data().h:"";if(tab==="orders")panel()}).catch(()=>{pinHash=null;if(tab==="orders")panel()});
+stop.push(onSnapshot(collection(db,"orders"),s=>{if(!first){s.docChanges().forEach(c=>{if(c.type==="added"){newCount++;beep();document.title="("+newCount+") New order! – Toyland GH"}})}first=false;orders=s.docs.map(d=>Object.assign({id:d.id},d.data()));if(!busy())panel()},()=>{}));
+panel()});
+</script></body></html>
